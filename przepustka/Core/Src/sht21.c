@@ -27,8 +27,8 @@ uint8_t Read8(SHT21_t *sht, uint8_t Register)
 void SHT21_Init(SHT21_t *sht, I2C_HandleTypeDef *i2c, uint8_t Address)
 {
 	sht->sht21_i2c = i2c;
-	sht->Address = Address;
-	sht->Serial = SHT21_Read_Serial(sht);
+	sht->Address = Address<<1;
+	//sht->Serial = SHT21_Read_Serial(sht);
 }
 
 uint64_t SHT21_Read_Serial(SHT21_t *sht)
@@ -45,8 +45,9 @@ uint64_t SHT21_Read_Serial(SHT21_t *sht)
 
 void SHT21_Write_Command(SHT21_t *sht, uint8_t Command)
 {
+	HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,0);
 	HAL_I2C_Master_Transmit(sht->sht21_i2c,sht->Address,&Command,1,SHT_I2C_TIMEOUT);
-
+	HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,1);
 }
 
 
@@ -66,18 +67,18 @@ void SHT21_Measure_T(SHT21_t *sht, uint8_t Hold)
 
  void SHT21_Read_Raw_Value(SHT21_t *sht)
  {
-	 uint16_t Value;
-	 if (HAL_I2C_Master_Receive(sht->sht21_i2c,sht->Address,&Value,2,SHT_I2C_TIMEOUT)==0)
+	 uint8_t Value[2]={0};
+	 if (HAL_I2C_Master_Receive(sht->sht21_i2c,sht->Address,Value,2,SHT_I2C_TIMEOUT)==0)
 		 switch (sht->Last_measurement)
 		 {
 		 case SHT_LAST_MEAS_T :
 		 {
-			 sht->temperature_raw=Value;
+			 sht->temperature_raw=Value[0]<<8|Value[1];
 			 break;
 		 }
 		 case SHT_LAST_MEAS_RH :
 		 {
-			 sht->rh_raw=Value;
+			 sht->rh_raw=Value[0]<<8|Value[1];
 			 break;
 		 }
 		 default: break;

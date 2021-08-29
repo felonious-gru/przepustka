@@ -10,8 +10,8 @@
 
 
 //commands
-#define SHT_I2C_TIMEOUT	800
-#define SHT21_TRIGGER_T_HOLD    0b1110011		//pulls down SCL during measurement
+#define SHT_I2C_TIMEOUT	150
+#define SHT21_TRIGGER_T_HOLD    0b11100011		//pulls down SCL during measurement
 #define SHT21_TRIGGER_RH_HOLD   0b11100101		//pulls down SCL during measurement
 #define SHT21_TRIGGER_T_NOHOLD  0b11110011
 #define SHT21_TRIGGER_RH_NOHOLD 0b11110101

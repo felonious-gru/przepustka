@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "sht21.h"
+#include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,7 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SHT21_ADDRESS 0x64
+#define SHT21_ADDRESS 0b1000000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +51,10 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 SHT21_t Sht21;
+uint8_t DataToSend[40]; // USB VCOM buffer
+uint8_t MessageLength = 0; // USB VCOM data length
+float temperature;
+float humidity;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,12 +107,25 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   SHT21_Init(&Sht21, &hi2c1, SHT21_ADDRESS);
+  HAL_Delay(10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  SHT21_Measure_T(&Sht21,0);
+	  HAL_Delay(120);
+	  SHT21_Read_Raw_Value(&Sht21);
+	  SHT21_Measure_RH(&Sht21,0);
+	 	  HAL_Delay(120);
+	 	  SHT21_Read_Raw_Value(&Sht21);
+	  HAL_Delay(100);
+
+	  temperature=-46.85+175.72*(Sht21.temperature_raw/(65536.0));
+	  humidity=-6+125*(Sht21.rh_raw/(65536.0));
+	  MessageLength = sprintf(DataToSend, "RH: %2.2f, wartosc: %+2.2f \n\r", humidity, temperature);
+	  CDC_Transmit_FS(DataToSend, MessageLength);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -123,7 +141,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
   */
@@ -154,14 +171,6 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
-  PeriphClkInitStruct.PLLI2S.PLLI2SN = 192;
-  PeriphClkInitStruct.PLLI2S.PLLI2SM = 16;
-  PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
@@ -284,12 +293,12 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : LED1_Pin */
   GPIO_InitStruct.Pin = LED1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
 
