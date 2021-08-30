@@ -45,9 +45,9 @@ uint64_t SHT21_Read_Serial(SHT21_t *sht)
 
 void SHT21_Write_Command(SHT21_t *sht, uint8_t Command)
 {
-	HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,0);
+
 	HAL_I2C_Master_Transmit(sht->sht21_i2c,sht->Address,&Command,1,SHT_I2C_TIMEOUT);
-	HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,1);
+
 }
 
 
@@ -86,7 +86,11 @@ void SHT21_Measure_T(SHT21_t *sht, uint8_t Hold)
  }
 
 
-uint8_t SHT21_Update_calculated_value(SHT21_t *sht);
+uint8_t SHT21_Update_calculated_value(SHT21_t *sht)
+{
+	sht->temperature=-46.85+175.72*(sht->temperature_raw/(65536.0));
+	sht->humidity=-6+125*(sht->rh_raw/(65536.0));
+}
 
 
 uint8_t SHT21_Read_Register(SHT21_t *sht)

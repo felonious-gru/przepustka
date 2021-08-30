@@ -24,7 +24,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "sht21.h"
+#include "MPU6050.h"
 #include "usbd_cdc_if.h"
+#include "ssd1306.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +36,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SHT21_ADDRESS 0b1000000
+#define SHT21_ADDRESS 	0b1000000
+#define MPU6050_ADDRESS 0b1101000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -44,6 +47,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c3;
+DMA_HandleTypeDef hdma_i2c3_tx;
 
 I2S_HandleTypeDef hi2s2;
 
@@ -51,7 +56,10 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 SHT21_t Sht21;
-uint8_t DataToSend[40]; // USB VCOM buffer
+MPU6050_t Mpu6050;
+SSD1306_t oled;
+uint32_t  time,counter;
+uint8_t DataToSend[80]; // USB VCOM buffer
 uint8_t MessageLength = 0; // USB VCOM data length
 float temperature;
 float humidity;
@@ -63,8 +71,11 @@ static void MX_GPIO_Init(void);
 static void MX_I2S2_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_DMA_Init(void);
+static void MX_I2C3_Init(void);
+static void MX_NVIC_Init(void);
 /* USER CODE BEGIN PFP */
-
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -104,28 +115,69 @@ int main(void)
   MX_I2C1_Init();
   MX_USB_DEVICE_Init();
   MX_USART2_UART_Init();
-  /* USER CODE BEGIN 2 */
+  MX_DMA_Init();
+  MX_I2C3_Init();
 
+  /* Initialize interrupts */
+  MX_NVIC_Init();
+  /* USER CODE BEGIN 2 */
+  ssd1306_Init(&oled,&hi2c3,SSD1306_I2C_ADDR);
+  MPU6050_Init(&Mpu6050,&hi2c1,MPU6050_ADDRESS);
+  HAL_Delay(10);
   SHT21_Init(&Sht21, &hi2c1, SHT21_ADDRESS);
   HAL_Delay(10);
+  ssd1306_Fill(White);
+  	  ssd1306_UpdateScreen(&oled);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
 	  SHT21_Measure_T(&Sht21,0);
 	  HAL_Delay(120);
+
+
 	  SHT21_Read_Raw_Value(&Sht21);
 	  SHT21_Measure_RH(&Sht21,0);
-	 	  HAL_Delay(120);
-	 	  SHT21_Read_Raw_Value(&Sht21);
-	  HAL_Delay(100);
+	  HAL_Delay(120);
 
-	  temperature=-46.85+175.72*(Sht21.temperature_raw/(65536.0));
-	  humidity=-6+125*(Sht21.rh_raw/(65536.0));
-	  MessageLength = sprintf(DataToSend, "RH: %2.2f, wartosc: %+2.2f \n\r", humidity, temperature);
+	  SHT21_Read_Raw_Value(&Sht21);
+	  MPU6050_Read_Values(&Mpu6050);
+	  SHT21_Update_calculated_value(&Sht21);
+	  double Ax,Ay,Az,Gx,Gy,Gz,Temperature_MPU;
+	  Ax=Mpu6050.Accel_raw_X/ 16384.0;
+	  Ay=Mpu6050.Accel_raw_Y/ 16384.0;
+	  Az=Mpu6050.Accel_raw_Z/ 16384.0;
+	  Gx=Mpu6050.Gyro_raw_X/ 131.0;
+	  Gy=Mpu6050.Gyro_raw_Y/ 131.0;
+	  Gz=Mpu6050.Gyro_raw_Z/ 131.0;
+	  Temperature_MPU= (float)((int16_t)Mpu6050.Temp / (float)340.0 + (float)36.53);
+	  //MessageLength = sprintf(DataToSend, "RH: %2.2f, T: %+2.2f X:% 4.2f Y:%4.2f Z:%4.2f Gx:%4.2f Gy:%4.2f Gz:%4.2f T:%4.2f \n\r", Sht21.humidity, Sht21.temperature, Ax, Ay, Az, Gx, Gy, Gz, Temperature_MPU);
+	  MessageLength = sprintf(DataToSend, "%i\n\r", time);
+	  //MessageLength = sprintf(DataToSend, "TEST");
+
 	  CDC_Transmit_FS(DataToSend, MessageLength);
+	  MessageLength = sprintf(DataToSend, "RH:%2.2f|T:%+2.2f", Sht21.humidity, Sht21.temperature);
+	  ssd1306_SetCursor(0,0);
+	  ssd1306_WriteString(DataToSend,Font_7x10,White);
+	  MessageLength = sprintf(DataToSend, "X:%+1.2f  Gx:%+02.2f", Ax,Gx);
+	  	  ssd1306_SetCursor(0,11);
+	  	  ssd1306_WriteString(DataToSend,Font_7x10,White);
+	  	MessageLength = sprintf(DataToSend, "Y:%+1.2f  Gy:%+02.2f", Ay,Gy);
+	  		  	  ssd1306_SetCursor(0,22);
+	  		  	  ssd1306_WriteString(DataToSend,Font_7x10,White);
+	  		  	MessageLength = sprintf(DataToSend, "Z:%+1.2f  Gz:%+2.2f", Az,Gz);
+	  		  		  	  ssd1306_SetCursor(0,33);
+	  		  		  	  ssd1306_WriteString(DataToSend,Font_7x10,White);
+	  		  		  MessageLength = sprintf(DataToSend, "%i", counter);
+	  		  		  	  		  		  	  ssd1306_SetCursor(0,44);
+	  		  		  	  		  		  	  ssd1306_WriteString(DataToSend,Font_7x10,White);
+
+
+
+	 // SHT21_Disable_Heater(&Sht21);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -177,6 +229,20 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief NVIC Configuration.
+  * @retval None
+  */
+static void MX_NVIC_Init(void)
+{
+  /* I2C3_EV_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(I2C3_EV_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(I2C3_EV_IRQn);
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+}
+
+/**
   * @brief I2C1 Initialization Function
   * @param None
   * @retval None
@@ -207,6 +273,40 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief I2C3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C3_Init(void)
+{
+
+  /* USER CODE BEGIN I2C3_Init 0 */
+
+  /* USER CODE END I2C3_Init 0 */
+
+  /* USER CODE BEGIN I2C3_Init 1 */
+
+  /* USER CODE END I2C3_Init 1 */
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.ClockSpeed = 400000;
+  hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c3.Init.OwnAddress1 = 0;
+  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2 = 0;
+  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C3_Init 2 */
+
+  /* USER CODE END I2C3_Init 2 */
 
 }
 
@@ -278,6 +378,17 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -321,7 +432,15 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+	if (hi2c==oled.oled_i2c)
+	{	counter++;
+		 ssd1306_UpdateScreen(&oled);
+	}
 
+
+}
 /* USER CODE END 4 */
 
 /**

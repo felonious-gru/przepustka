@@ -42,6 +42,9 @@ typedef struct
 	uint8_t						Last_measurement; 	//1 - temperature ; 2 - relative humidity
 	uint16_t 					temperature_raw;
 	uint16_t 					rh_raw;
+	float						temperature;
+	float						humidity;
+
 
 
 }SHT21_t;
