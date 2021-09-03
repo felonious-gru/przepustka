@@ -7,7 +7,7 @@
 
 #include "main.h"
 #include "ssd1306.h"
-extern uint32_t  time;
+extern uint32_t  time,time1;
 // Screenbuffer
 static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 
@@ -20,7 +20,7 @@ static uint8_t ssd1306_WriteCommand(SSD1306_t *oled, uint8_t command)
 
 
 	result=HAL_I2C_Mem_Write(oled->oled_i2c, oled->Address, 0x00, 1, &command, 1, 10);
-    HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,1);
+
     return result;
 }
 
@@ -110,8 +110,9 @@ uint8_t ssd1306_Init(SSD1306_t *oled, I2C_HandleTypeDef *i2c, uint8_t Address)
     //  Write the screenbuffer with changed to the screen
     //
     void ssd1306_UpdateScreen(SSD1306_t *oled)
-    { uint32_t time1;
+    {
         uint8_t i;
+        time=HAL_GetTick()-time1;
         time1=HAL_GetTick();
 //           	 ssd1306_WriteCommand(oled, 0xB0);
 //        	 ssd1306_WriteCommand(oled, 0x00);
@@ -127,7 +128,7 @@ uint8_t ssd1306_Init(SSD1306_t *oled, I2C_HandleTypeDef *i2c, uint8_t Address)
        //  HAL_I2C_Mem_Write(oled->oled_i2c, oled->Address, 0x40, 1, &SSD1306_Buffer[0], SSD1306_WIDTH*8,150);
             HAL_I2C_Mem_Write_DMA(oled->oled_i2c, oled->Address, 0x40, 1, &SSD1306_Buffer[0], SSD1306_WIDTH*8);
         }
-            time=HAL_GetTick()-time1;
+
 
 
     }
@@ -175,8 +176,8 @@ uint8_t ssd1306_Init(SSD1306_t *oled, I2C_HandleTypeDef *i2c, uint8_t Address)
         uint32_t i, b, j;
 
         // Check remaining space on current line
-        if (SSD1306_WIDTH <= (SSD1306.CurrentX + Font.FontWidth) ||
-            SSD1306_HEIGHT <= (SSD1306.CurrentY + Font.FontHeight))
+        if (SSD1306_WIDTH <= (SSD1306.CurrentX + Font.FontWidth)-1 ||
+            SSD1306_HEIGHT <= (SSD1306.CurrentY + Font.FontHeight)-1)
         {
             // Not enough space on current line
             return 0;

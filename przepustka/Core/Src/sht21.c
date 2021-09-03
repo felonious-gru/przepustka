@@ -45,30 +45,39 @@ uint64_t SHT21_Read_Serial(SHT21_t *sht)
 
 void SHT21_Write_Command(SHT21_t *sht, uint8_t Command)
 {
-
+	if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
 	HAL_I2C_Master_Transmit(sht->sht21_i2c,sht->Address,&Command,1,SHT_I2C_TIMEOUT);
-
+	}
 }
 
 
 void SHT21_Measure_T(SHT21_t *sht, uint8_t Hold)
 {
-
+	if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
  SHT21_Write_Command(sht,Hold?  SHT21_TRIGGER_T_HOLD : SHT21_TRIGGER_T_NOHOLD);
  sht->Last_measurement=SHT_LAST_MEAS_T;
+	}
 }
 
 
  void SHT21_Measure_RH(SHT21_t *sht, uint8_t Hold)
  {
+	 if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
 	 SHT21_Write_Command(sht,Hold? SHT21_TRIGGER_RH_HOLD: SHT21_TRIGGER_RH_NOHOLD);
 	 sht->Last_measurement=SHT_LAST_MEAS_RH;
+	 }
+
  }
 
  void SHT21_Read_Raw_Value(SHT21_t *sht)
- {
+ {	extern uint32_t  time2,time3;
+ 	 	 time2=HAL_GetTick()-time3;
+         time3=HAL_GetTick();
+
 	 uint8_t Value[2]={0};
-	 if (HAL_I2C_Master_Receive(sht->sht21_i2c,sht->Address,Value,2,SHT_I2C_TIMEOUT)==0)
+	 if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
+		 if (HAL_I2C_Master_Receive(sht->sht21_i2c,sht->Address,Value,2,SHT_I2C_TIMEOUT)==0)
+		 {
 		 switch (sht->Last_measurement)
 		 {
 		 case SHT_LAST_MEAS_T :
@@ -83,6 +92,13 @@ void SHT21_Measure_T(SHT21_t *sht, uint8_t Hold)
 		 }
 		 default: break;
 		 }
+		 }
+		 else
+		 {
+			 //HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
+
+		 }
+	 }
  }
 
 
@@ -95,14 +111,17 @@ uint8_t SHT21_Update_calculated_value(SHT21_t *sht)
 
 uint8_t SHT21_Read_Register(SHT21_t *sht)
 {	uint8_t Register;
+if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
 	HAL_I2C_Mem_Read(sht->sht21_i2c,sht->Address,SHT21_READ_REGISTER,1,&Register,1,SHT_I2C_TIMEOUT);
+}
 	return Register;
 }
 
 
 void SHT21_Write_Register(SHT21_t *sht, uint8_t Register)
-{
+{	if (sht->sht21_i2c->State==HAL_I2C_STATE_READY){
 	HAL_I2C_Mem_Write(sht->sht21_i2c,sht->Address,SHT21_WRITE_REGISTER,1,&Register,1,SHT_I2C_TIMEOUT);
+}
 }
 
 

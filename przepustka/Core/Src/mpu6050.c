@@ -38,9 +38,15 @@ void MPU6050_Init(MPU6050_t *mpu, I2C_HandleTypeDef *i2c, uint8_t Address)
 
 void MPU6050_Read_Values(MPU6050_t *mpu){
 
-uint8_t Temp[16];
-HAL_I2C_Mem_Read(mpu->mpu_i2c, mpu->Address, 0x3B,1,Temp,14,MPU_I2C_TIMEOUT);
 
+uint8_t Temp[16];
+if (mpu->mpu_i2c->State==HAL_I2C_STATE_READY){
+	extern uint32_t  time4,time5;
+	 	 	 time4=HAL_GetTick()-time5;
+	         time5=HAL_GetTick();
+
+if (HAL_I2C_Mem_Read(mpu->mpu_i2c, mpu->Address, 0x3B,1,Temp,14,MPU_I2C_TIMEOUT)==0)
+{
 mpu->Accel_raw_X=(int16_t)(Temp[0]<<8|Temp[1]);
 mpu->Accel_raw_Y=(int16_t)(Temp[2]<<8|Temp[3]);
 mpu->Accel_raw_Z=(int16_t)(Temp[4]<<8|Temp[5]);
@@ -48,6 +54,11 @@ mpu->Gyro_raw_X=(int16_t)(Temp[8]<<8|Temp[9]);
 mpu->Gyro_raw_Y=(int16_t)(Temp[10]<<8|Temp[11]);
 mpu->Gyro_raw_Z=(int16_t)(Temp[12]<<8|Temp[13]);
 mpu->Temp=(int16_t)(Temp[6]<<8|Temp[7]);
-
+}
+else
+{
+	HAL_GPIO_WritePin(LED1_GPIO_Port,LED1_Pin,GPIO_PIN_RESET);
+}
+}
 
 }
