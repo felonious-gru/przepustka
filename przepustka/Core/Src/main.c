@@ -27,6 +27,8 @@
 #include "MPU6050.h"
 #include "usbd_cdc_if.h"
 #include "ssd1306.h"
+#include "arm_math.h"
+#include "math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,6 +40,8 @@
 /* USER CODE BEGIN PD */
 #define SHT21_ADDRESS 	0b1000000
 #define MPU6050_ADDRESS 0b1101000
+#define FFT_SAMPLES		1024
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,16 +57,28 @@ I2C_HandleTypeDef hi2c3;
 DMA_HandleTypeDef hdma_i2c3_tx;
 
 I2S_HandleTypeDef hi2s2;
+DMA_HandleTypeDef hdma_spi2_rx;
 
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+int Freqs[FFT_SAMPLES];
+FFTInBuffer[FFT_SAMPLES];
+FFTOutBuffer[FFT_SAMPLES];
+//arm_rfft_fast_instance_f32 FFTHandler;
+arm_rfft_fast_instance_f32	FFTHandler;
+volatile uint8_t	SamplesReady;
+uint8_t	OutFreqArray[10];
+
 SHT21_t Sht21;
 MPU6050_t Mpu6050;
+double Ax,Ay,Az,Gx,Gy,Gz,Temperature_MPU;
 SSD1306_t oled;
+volatile uint16_t data_in[4096]={0};
 uint32_t  time,time1,time2,time3,time4,time5,counter,counter2;
+volatile int32_t audio1[1024],audio2;
 uint8_t DataToSend[80]; // USB VCOM buffer
 uint8_t MessageLength = 0; // USB VCOM data length
 float temperature;
@@ -130,64 +146,67 @@ int main(void)
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
 
-  hi2c3.Init.ClockSpeed=900000;  			// OVERCLOCKING, code generator does not allow higher than 400kHz
+  //HAL_I2S_Receive_DMA(&hi2s2, &data_in, 4);
+  hi2c3.Init.ClockSpeed=800000;  			// OVERCLOCKING, code generator does not allow higher than 400kHz
   HAL_I2C_Init(&hi2c3);
   HAL_Delay(50);
   ssd1306_Init(&oled,&hi2c3,SSD1306_I2C_ADDR);
   MPU6050_Init(&Mpu6050,&hi2c1,MPU6050_ADDRESS);
   HAL_Delay(10);
-  SHT21_Init(&Sht21, &hi2c1, SHT21_ADDRESS);
+  //SHT21_Init(&Sht21, &hi2c1, SHT21_ADDRESS);
   HAL_Delay(10);
   ssd1306_Fill(Black);
+  HAL_DMA_Init(&hdma_spi2_rx);
   	  ssd1306_UpdateScreen(&oled);
-  	 HAL_TIM_Base_Start_IT(&htim2);
+  	 //HAL_I2S_Receive(&hi2s2, &data_in, 128,1000);
+  	 HAL_I2S_Receive_DMA(&hi2s2, &data_in, 2048);
+
+  	// HAL_TIM_Base_Start_IT(&htim2);
+
+
+  	////////////////////////////////// TEMPORARY I2S SUPPORT
+  	arm_rfft_fast_init_f32(&FFTHandler,1024);
+
+
+  //	HAL_I2S_DMAResume(&hi2s2);
+  	//////////////////////////////////////////////////////////
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
+  { // HAL_I2S_Receive_IT(&hi2s2, data_in, 64);
+
+	  if(SamplesReady==1)
+	  { HAL_GPIO_TogglePin(LED1_GPIO_Port,LED1_Pin);
+		  SamplesReady=0;
+		  for(uint32_t i=0; i<FFT_SAMPLES*16;i++)
+		  {
+			  FFTInBuffer[i]=(float)audio1[i];
+			 // FFTInBuffer[i]=(float)16000*sinf(0.23 *i);
+		  }
+		  CalculateFFT();
+	  }
+	  FullscreenFFT();
 	 // HAL_Delay(300);
-	  HAL_ADC_GetValue(&hadc1);
-	  MPU6050_Read_Values(&Mpu6050);
-	  SHT21_Update_calculated_value(&Sht21);
-	  double Ax,Ay,Az,Gx,Gy,Gz,Temperature_MPU;
-	  Ax=Mpu6050.Accel_raw_X/ 16384.0;
-	  Ay=Mpu6050.Accel_raw_Y/ 16384.0;
-	  Az=Mpu6050.Accel_raw_Z/ 16384.0;
-	  Gx=Mpu6050.Gyro_raw_X/ 131.0;
-	  Gy=Mpu6050.Gyro_raw_Y/ 131.0;
-	  Gz=Mpu6050.Gyro_raw_Z/ 131.0;
-	  Temperature_MPU= (float)((int16_t)Mpu6050.Temp / (float)340.0 + (float)36.53);
+//	  HAL_ADC_GetValue(&hadc1);
+//	  MPU6050_Read_Values(&Mpu6050);
+//	  SHT21_Update_calculated_value(&Sht21);
+//
+//
+//	  Ax=Mpu6050.Accel_raw_X/ 16384.0;
+//	  Ay=Mpu6050.Accel_raw_Y/ 16384.0;
+//	  Az=Mpu6050.Accel_raw_Z/ 16384.0;
+//	  Gx=Mpu6050.Gyro_raw_X/ 131.0;
+//	  Gy=Mpu6050.Gyro_raw_Y/ 131.0;
+//	  Gz=Mpu6050.Gyro_raw_Z/ 131.0;
+//	  Temperature_MPU= (float)((int16_t)Mpu6050.Temp / (float)340.0 + (float)36.53);
 
 
-	  MessageLength = sprintf(DataToSend, "RH:%2.2f|T:%+2.2f", Sht21.humidity, Sht21.temperature);
-	  ssd1306_SetCursor(0,0);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "X:%+1.2f  Gx:%+-8.1f  ", Ax,Gx);
-	  ssd1306_SetCursor(0,8);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "Y:%+1.2f  Gy:%+-8.1f", Ay,Gy);
-	  ssd1306_SetCursor(0,16);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "Z:%+1.2f  Gz:%-8.1f", Az,Gz);
-	  ssd1306_SetCursor(0,24);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "SHT:%-4ims",time2);
-	  ssd1306_SetCursor(0,32);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "MPU:%-5ims",time4);
- 	  ssd1306_SetCursor(0,40);
-  	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-  	  MessageLength = sprintf(DataToSend, "Cnt:%-5i",counter);
-	  ssd1306_SetCursor(0,48);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "FPS:%-3i ",  1000/time);
-	  ssd1306_SetCursor(0,56);
-	  ssd1306_WriteString(DataToSend,Font_6x8,White);
-	  MessageLength = sprintf(DataToSend, "%i %i\r\n",counter,counter2++);
-	  CDC_Transmit_FS(DataToSend, MessageLength);
-	 // SHT21_Disable_Heater(&Sht21);
+	 //TUTAJ RYSOWANIE EKRANU
+	  //void SHT_MPU_Debug();
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -253,6 +272,9 @@ static void MX_NVIC_Init(void)
   /* TIM2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(TIM2_IRQn, 11, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
+  /* SPI2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SPI2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(SPI2_IRQn);
 }
 
 /**
@@ -391,12 +413,12 @@ static void MX_I2S2_Init(void)
   hi2s2.Instance = SPI2;
   hi2s2.Init.Mode = I2S_MODE_MASTER_RX;
   hi2s2.Init.Standard = I2S_STANDARD_PHILIPS;
-  hi2s2.Init.DataFormat = I2S_DATAFORMAT_16B;
+  hi2s2.Init.DataFormat = I2S_DATAFORMAT_24B;
   hi2s2.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
-  hi2s2.Init.AudioFreq = I2S_AUDIOFREQ_16K;
+  hi2s2.Init.AudioFreq = I2S_AUDIOFREQ_96K;
   hi2s2.Init.CPOL = I2S_CPOL_LOW;
   hi2s2.Init.ClockSource = I2S_CLOCK_PLL;
-  hi2s2.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_ENABLE;
+  hi2s2.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
   if (HAL_I2S_Init(&hi2s2) != HAL_OK)
   {
     Error_Handler();
@@ -494,6 +516,11 @@ static void MX_DMA_Init(void)
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
 
+  /* DMA interrupt init */
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+
 }
 
 /**
@@ -543,20 +570,36 @@ static void MX_GPIO_Init(void)
 void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c)
 {
 	if (hi2c==oled.oled_i2c)
-	{	ssd1306_DrawPixel(127,counter%64,Black);
-		counter++;
-		ssd1306_DrawPixel(127,counter%64,White);
+	{
+//		ssd1306_DrawPixel(127,counter%64,Black);
+//		 counter++;
+//		ssd1306_DrawPixel(127,counter%64,White);
 
 	ssd1306_UpdateScreen(&oled);
+	//if (htim ==&htim3)
+
 	}
 
 
 }
 
+void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+	{HAL_StatusTypeDef result;
+			uint16_t i;
+			counter++;
+		for(i=0;i<1024;i++)
+		{
+			audio1[i]=(int)(data_in[4*i]<<16|data_in[4*i+1]);
+			///audio1[i]=(data_in[4*i]);
+		}
+		SamplesReady=1;
+		}
+}
 
  void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 {
-	// HAL_GPIO_TogglePin(LED1_GPIO_Port,LED1_Pin);
+	//
 }
 
 
@@ -577,9 +620,90 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		SHT21_Measure_RH(&Sht21,0);
 	}
+///////////////////////////////////
 
+/////////////////////////////////////////////////////////////////////////
 	}
 
+
+}
+
+void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+
+}
+
+float complexABS(float real, float compl) {
+	return sqrtf(real*real+compl*compl);
+}
+
+void CalculateFFT(void)
+{
+
+
+	//arm_rfft_f32(&FFTHandler,FFTInBuffer,FFTOutBuffer);
+
+	arm_rfft_fast_f32(&FFTHandler,FFTInBuffer,FFTOutBuffer,0);
+		for(uint32_t i=0; i<FFT_SAMPLES;i++)
+					  {
+						  FFTOutBuffer[i]=FFTInBuffer[i];
+					  }
+
+	int FreqPoint=0;
+	int Offset = 45;
+
+	for(int i=0;i<FFT_SAMPLES;i=i+2)
+	{
+		Freqs[FreqPoint]= (int)(20*log10f(complexABS(FFTInBuffer[i],FFTInBuffer[i+1])))-Offset;
+
+		if (Freqs[FreqPoint]<0)
+		{
+			Freqs[FreqPoint]=0;
+		}
+		FreqPoint++;
+	}
+}
+
+
+void SHT_MPU_Debug()
+{
+	 MessageLength = sprintf(DataToSend, "RH:%2.2f|T:%+2.2f", Sht21.humidity, Sht21.temperature);
+		  ssd1306_SetCursor(0,0);
+		  ssd1306_WriteString(DataToSend,Font_6x8,White);
+		  MessageLength = sprintf(DataToSend, "X:%+1.2f  Gx:%+-8.1f  ", Ax,Gx);
+		  ssd1306_SetCursor(0,8);
+		  ssd1306_WriteString(DataToSend,Font_6x8,White);
+		  MessageLength = sprintf(DataToSend, "Y:%+1.2f  Gy:%+-8.1f", Ay,Gy);
+		  ssd1306_SetCursor(0,16);
+		  ssd1306_WriteString(DataToSend,Font_6x8,White);
+		  MessageLength = sprintf(DataToSend, "Z:%+1.2f  Gz:%-8.1f", Az,Gz);
+		  ssd1306_SetCursor(0,24);
+		  ssd1306_WriteString(DataToSend,Font_6x8,White);
+		  MessageLength = sprintf(DataToSend, "SHT:%-4ims",time2);
+		  ssd1306_SetCursor(0,32);
+		  ssd1306_WriteString(DataToSend,Font_6x8,White);
+		  MessageLength = sprintf(DataToSend, "MPU:%-5ims",time4);
+	 	  ssd1306_SetCursor(0,40);
+	  	  ssd1306_WriteString(DataToSend,Font_6x8,White);
+	  	  MessageLength = sprintf(DataToSend, "Cnt:%12i",counter);
+	  	  ssd1306_SetCursor(0,48);
+	  	  ssd1306_WriteString(DataToSend,Font_6x8,White);
+	  	  MessageLength = sprintf(DataToSend, "FPS:%-3i ",  1000/time);
+//		  MessageLength = sprintf(DataToSend, "Cnt:%12i",audio1[1]);
+	  	  ssd1306_SetCursor(0,56);
+	  	  ssd1306_WriteString(DataToSend,Font_6x8,White);
+}
+
+void FullscreenFFT()
+{	int i=0;
+	HAL_GPIO_TogglePin(LED1_GPIO_Port,LED1_Pin);
+	ssd1306_Fill(Black);
+	for (i=0;i<128;i++)
+	{
+	//ssd1306_DrawPixel(i,63-((Freqs[i*4]/2)),White);				//f(f)
+		ssd1306_DrawPixel(i,(audio1[i]/50000)/2+32,White);  //f(t)
+
+	}
 }
 /* USER CODE END 4 */
 
